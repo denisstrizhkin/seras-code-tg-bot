@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.99"
 env_logger = "0.11.8"
 log = "0.4.27"
+markdown = "1.0.0"
 ollama-rs = { git = "https://github.com/denisstrizhkin/ollama-rs.git", rev = "88120d153d658be8148c6b9c38a68073d2235e4d" }
 teloxide = { version = "0.17.0", features = ["macros"] }
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros"] }
