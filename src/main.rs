@@ -1,11 +1,34 @@
 use anyhow::Result;
-use std::mem;
+use ollama_rs::{
+    Ollama,
+    generation::chat::{ChatMessage, request::ChatMessageRequest},
+};
+use std::collections::HashMap;
+use std::sync::Arc;
 use teloxide::{
-    dispatching::{HandlerExt, MessageFilterExt, UpdateFilterExt},
+    dispatching::{HandlerExt, UpdateFilterExt},
     macros,
     prelude::*,
+    types::ChatAction,
     utils::command::BotCommands,
 };
+use tokio::sync::RwLock;
+
+const MODEL_NAME: &str = "qwen2.5-coder:32b";
+
+struct State {
+    ollama: Ollama,
+    history: RwLock<HashMap<ChatId, Vec<ChatMessage>>>,
+}
+
+impl State {
+    fn new() -> Self {
+        Self {
+            ollama: Ollama::default(),
+            history: RwLock::new(HashMap::new()),
+        }
+    }
+}
 
 /// These commands are supported:
 #[derive(macros::BotCommands, Clone)]
@@ -41,6 +64,7 @@ async fn main() -> Result<()> {
             )
             .endpoint(handle_msg),
     )
+    .dependencies(dptree::deps![Arc::new(State::new())])
     .enable_ctrlc_handler()
     .build()
     .dispatch()
@@ -48,12 +72,27 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn handle_help(bot: Bot, msg: Message, cmd: Command) -> Result<()> {
+fn message_username(msg: &Message) -> String {
+    msg.from
+        .as_ref()
+        .and_then(|x| x.username.clone())
+        .unwrap_or_default()
+}
+
+async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
     bot.send_message(msg.chat.id, "<Help message here>").await?;
     Ok(())
 }
 
-async fn handle_clear(bot: Bot, msg: Message, cmd: Command) -> Result<()> {
+async fn handle_clear(bot: Bot, msg: Message, state: Arc<State>) -> Result<()> {
+    state
+        .history
+        .write()
+        .await
+        .entry(msg.chat.id)
+        .and_modify(|x| x.clear());
+    let usr = message_username(&msg);
+    log::debug!("Clear history for user <{usr}>.");
     bot.send_message(msg.chat.id, "Context cleared.").await?;
     Ok(())
 }
@@ -72,15 +111,38 @@ async fn handle_uknown_command(bot: Bot, msg: Message) -> Result<()> {
     };
     bot.send_message(
         msg.chat.id,
-        format!(
-            "Unknown command: {}. Use /help to see available commands.",
-            cmd
-        ),
+        format!("Unknown command: {cmd}. Use /help to see available commands."),
     )
     .await?;
     Ok(())
 }
 
-async fn handle_msg(bot: Bot, msg: Message) -> Result<()> {
+async fn handle_msg(bot: Bot, msg: Message, state: Arc<State>) -> Result<()> {
+    if let Some(text) = msg.text() {
+        let usr = message_username(&msg);
+        log::debug!("User <{usr}> send request: {text:.20}.");
+        bot.send_chat_action(msg.chat.id, ChatAction::Typing)
+            .await?;
+        let response = {
+            let mut history_lock = state.history.write().await;
+            let history = history_lock.entry(msg.chat.id).or_default();
+            state
+                .ollama
+                .send_chat_messages_with_history(
+                    history,
+                    ChatMessageRequest::new(
+                        MODEL_NAME.to_string(),
+                        vec![ChatMessage::user(text.to_string())],
+                    ),
+                )
+                .await?
+        };
+        log::debug!(
+            "Model responded to user <{usr}>: {:.20}.",
+            response.message.content
+        );
+        bot.send_message(msg.chat.id, response.message.content)
+            .await?;
+    }
     Ok(())
 }
