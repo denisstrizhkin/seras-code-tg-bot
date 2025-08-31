@@ -3,8 +3,7 @@ use ollama_rs::{
     Ollama,
     generation::chat::{ChatMessage, request::ChatMessageRequest},
 };
-use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 use teloxide::{
     dispatching::{HandlerExt, UpdateFilterExt},
     macros,
@@ -12,22 +11,17 @@ use teloxide::{
     types::{ChatAction, ParseMode},
     utils::command::BotCommands,
 };
-use tokio::sync::RwLock;
+use tokio_stream::StreamExt;
+
+mod history;
+use history::History;
 
 const MODEL_NAME: &str = "qwen2.5-coder:32b";
 
+#[derive(Default)]
 struct State {
     ollama: Ollama,
-    history: RwLock<HashMap<ChatId, Vec<ChatMessage>>>,
-}
-
-impl State {
-    fn new() -> Self {
-        Self {
-            ollama: Ollama::default(),
-            history: RwLock::new(HashMap::new()),
-        }
-    }
+    history: History,
 }
 
 /// These commands are supported:
@@ -64,7 +58,7 @@ async fn main() -> Result<()> {
             )
             .endpoint(handle_msg),
     )
-    .dependencies(dptree::deps![Arc::new(State::new())])
+    .dependencies(dptree::deps![Arc::new(State::default())])
     .enable_ctrlc_handler()
     .build()
     .dispatch()
@@ -85,12 +79,7 @@ async fn handle_help(bot: Bot, msg: Message) -> Result<()> {
 }
 
 async fn handle_clear(bot: Bot, msg: Message, state: Arc<State>) -> Result<()> {
-    state
-        .history
-        .write()
-        .await
-        .entry(msg.chat.id)
-        .and_modify(|x| x.clear());
+    state.history.clear(msg.chat.id).await;
     let usr = message_username(&msg);
     log::debug!("Clear history for user <{usr}>.");
     bot.send_message(msg.chat.id, "Context cleared.").await?;
@@ -205,28 +194,26 @@ async fn handle_msg(bot: Bot, msg: Message, state: Arc<State>) -> Result<()> {
         log::debug!("User <{usr}> send request: {text:.20}.");
         bot.send_chat_action(msg.chat.id, ChatAction::Typing)
             .await?;
-        let response = {
-            let mut history_lock = state.history.write().await;
-            let history = history_lock.entry(msg.chat.id).or_default();
-            state
-                .ollama
-                .send_chat_messages_with_history(
-                    history,
-                    ChatMessageRequest::new(
-                        MODEL_NAME.to_string(),
-                        vec![ChatMessage::user(text.to_string())],
-                    ),
-                )
-                .await?
-        };
-        log::debug!(
-            "Model responded to user <{usr}>: {:.20}.",
-            response.message.content
-        );
-        for s in split_markdown_into_chunks(&response.message.content, 4000) {
-            bot.send_message(msg.chat.id, sanitize_text(&s))
-                .parse_mode(ParseMode::Html)
-                .await?;
+        let chat_history = state.history.get(msg.chat.id).await;
+        let mut stream = state
+            .ollama
+            .send_chat_messages_with_history_stream(
+                chat_history.messages,
+                ChatMessageRequest::new(
+                    MODEL_NAME.to_string(),
+                    vec![ChatMessage::user(text.to_string())],
+                ),
+            )
+            .await?
+            .map(|resp| resp.map(|resp| resp.message.content));
+        if let Some(Ok(line)) = stream.next().await {
+            let mut text = line;
+            let message_id = bot.send_message(msg.chat.id, text.clone()).await?.id;
+            while let Some(Ok(line)) = stream.next().await {
+                text.push_str(&line);
+                bot.edit_message_text(msg.chat.id, message_id, text.clone())
+                    .await?;
+            }
         }
     }
     Ok(())
