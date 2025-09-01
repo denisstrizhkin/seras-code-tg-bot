@@ -16,7 +16,10 @@ impl History {
         self.messages.write().await.entry(chat_id).or_default();
         let guard = self.messages.read().await;
         let messages = guard.get(&chat_id).unwrap().clone();
-        ChatHistory { guard, messages }
+        ChatHistory {
+            _guard: guard,
+            messages,
+        }
     }
 
     pub async fn clear(&self, chat_id: ChatId) {
@@ -27,6 +30,6 @@ impl History {
 }
 
 pub struct ChatHistory<'a> {
-    guard: tokio::sync::RwLockReadGuard<'a, MessagesHashMap>,
+    _guard: tokio::sync::RwLockReadGuard<'a, MessagesHashMap>,
     pub messages: Messages,
 }
