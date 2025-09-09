@@ -122,7 +122,7 @@ pub fn sanitize_text(s: &str) -> String {
 async fn handle_msg(bot: Bot, msg: Message, state: Arc<State>) -> Result<()> {
     if let Some(text) = msg.text() {
         let usr = message_username(&msg);
-        log::debug!("User <{usr}> send request: {text:.20}.");
+        log::debug!("User <{usr}> send request: {}.", truncate_str(text, 20));
         let chat_history = state.history.get(msg.chat.id).await;
         let stream = state
             .ollama
@@ -145,7 +145,7 @@ async fn handle_msg(bot: Bot, msg: Message, state: Arc<State>) -> Result<()> {
                 .await?;
             parser.next_state().await?
         } {
-            log::debug!("{state:?}");
+            log::debug!("User <{usr}> response: {state:?}");
             if state.is_complete {
                 handle_complete_state(&bot, msg.chat.id, &mut msg_id, &state.text).await?;
             } else {

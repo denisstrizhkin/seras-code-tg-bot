@@ -1,12 +1,15 @@
-pub fn truncate_str(s: &str, max_n: usize) -> String {
-    const DOTS: &str = "...";
-    let s_n = s.chars().count();
-    let (n, max_n) = if s_n > max_n {
-        (max_n.saturating_sub(DOTS.chars().count()), max_n)
-    } else {
-        (s_n, s_n)
-    };
-    s.chars().take(n).chain(DOTS.chars()).take(max_n).collect()
+use std::borrow::Cow;
+
+pub fn truncate_str(s: &str, max_n: usize) -> Cow<'_, str> {
+    max_n.checked_sub(1).map_or("".into(), |max_n| {
+        let mut chars = s.char_indices();
+        let n = chars.nth(max_n);
+        let n_next = chars.next();
+        match (n, n_next) {
+            (Some((i, _)), Some(_)) => format!("{}…", &s[..i]).into(),
+            _ => s.into(),
+        }
+    })
 }
 
 #[cfg(test)]
@@ -17,10 +20,9 @@ mod tests {
     fn test_truncate_str() {
         assert_eq!(truncate_str("おはよう。", 6), "おはよう。");
         assert_eq!(truncate_str("おはよう。", 5), "おはよう。");
-        assert_eq!(truncate_str("おはよう。", 4), "お...");
-        assert_eq!(truncate_str("おはよう。", 3), "...");
-        assert_eq!(truncate_str("おはよう。", 2), "..");
-        assert_eq!(truncate_str("おはよう。", 1), ".");
+        assert_eq!(truncate_str("おはよう。", 4), "おはよ…");
+        assert_eq!(truncate_str("おはよう。", 2), "お…");
+        assert_eq!(truncate_str("おはよう。", 1), "…");
         assert_eq!(truncate_str("おはよう。", 0), "");
     }
 }
