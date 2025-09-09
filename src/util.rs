@@ -1,13 +1,13 @@
 use std::borrow::Cow;
 
 pub fn truncate_str(s: &str, max_n: usize) -> Cow<'_, str> {
-    max_n.checked_sub(1).map_or("".into(), |max_n| {
+    max_n.checked_sub(1).map_or(Cow::Borrowed(""), |max_n| {
         let mut chars = s.char_indices();
         let n = chars.nth(max_n);
         let n_next = chars.next();
         match (n, n_next) {
-            (Some((i, _)), Some(_)) => format!("{}…", &s[..i]).into(),
-            _ => s.into(),
+            (Some((i, _)), Some(_)) => Cow::Owned(format!("{}…", &s[..i])),
+            _ => Cow::Borrowed(s),
         }
     })
 }
