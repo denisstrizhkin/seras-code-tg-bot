@@ -17,10 +17,12 @@ use tokio_stream::StreamExt;
 use tokio_util::{bytes, io::StreamReader};
 
 mod history;
-use history::History;
-
 mod parser;
+mod util;
+
+use history::History;
 use parser::MessageParser;
+use util::truncate_str;
 
 const MODEL_NAME: &str = "qwen2.5-coder:32b";
 
@@ -99,11 +101,7 @@ async fn handle_uknown_command(bot: Bot, msg: Message) -> Result<()> {
         .split_whitespace()
         .next()
         .unwrap_or_default();
-    let cmd = if text.chars().count() > 50 {
-        format!("{}...", &text[..47])
-    } else {
-        text.to_string()
-    };
+    let cmd = truncate_str(text, 50);
     bot.send_message(
         msg.chat.id,
         format!("Unknown command: {cmd}. Use /help to see available commands."),

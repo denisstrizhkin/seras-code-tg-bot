@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::fmt;
 use tokio::io::{AsyncBufRead, Lines};
 
+use crate::util::truncate_str;
+
 const CODE_GUARD: &str = "```";
 const MSG_CHUNK_LEN: usize = 500;
 const MSG_MAX_LEN: usize = 4000;
@@ -18,19 +20,9 @@ pub struct MessageParserState {
 
 impl fmt::Debug for MessageParserState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn truncate_string(s: &str, max_len: usize) -> String {
-            let len = s.chars().count();
-            if len <= max_len {
-                format!("{s:?} ({len} chars)")
-            } else {
-                let truncated = &s[..max_len.min(s.len())];
-                format!("{truncated:?}... ({len} chars)")
-            }
-        }
-
         f.debug_struct("MessageParserState")
-            .field("buffer", &truncate_string(&self.buffer, 20))
-            .field("text", &truncate_string(&self.text, 20))
+            .field("buffer", &truncate_str(&self.buffer, 20))
+            .field("text", &truncate_str(&self.text, 20))
             .field("is_complete", &self.is_complete)
             .field("lang", &self.lang)
             .field("is_in_code_block", &self.is_in_code_block)
